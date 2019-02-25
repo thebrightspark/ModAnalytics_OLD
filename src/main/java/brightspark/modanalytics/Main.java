@@ -50,8 +50,26 @@ public class Main
 
 	public static void main(String... args)
 	{
+		//TODO: Have a way to input the CSV files
+		// Maybe check a certain directory every 10s and import (then delete/move) the CSVs into the DB
 		init();
-		downloadLatestAnalytics();
+	}
+
+	private static void init()
+	{
+		handleProperties();
+		try
+		{
+			db = new DbConnection(null);
+		}
+		catch(SQLException e)
+		{
+			log.error("Couldn't connect to the DB", e);
+		}
+		catch(ClassNotFoundException e)
+		{
+			log.error("Couldn't initialise JDBC", e);
+		}
 	}
 
 	private static void handleProperties()
@@ -108,23 +126,6 @@ public class Main
 		}
 
 		log.info("Read project IDs: {}", projectIds);
-	}
-
-	private static void init()
-	{
-		handleProperties();
-		try
-		{
-			db = new DbConnection(null);
-		}
-		catch(SQLException e)
-		{
-			log.error("Couldn't connect to the DB", e);
-		}
-		catch(ClassNotFoundException e)
-		{
-			log.error("Couldn't initialise JDBC", e);
-		}
 	}
 
 	private static void downloadLatestAnalytics() throws IOException

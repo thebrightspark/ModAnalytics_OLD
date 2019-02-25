@@ -8,10 +8,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.sql.*;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 
 public class DbConnection
 {
@@ -19,7 +17,8 @@ public class DbConnection
 	public static final String TABLE_PROJECTS = "projects";
 	public static final String TABLE_ANALYTICS = "analytics";
 
-	private static final String QUERY_INSERT = "insert into %s (%s) values (%s)";
+	private static final String QUERY_CREATE = "create table if not exists %s (%s)";
+	private static final String QUERY_INSERT = "replace into %s (%s) values (%s)";
 
 	private Connection connection;
 
@@ -31,10 +30,10 @@ public class DbConnection
 		log.info("Connection established to DB at {}", location);
 
 		//Create tables if they don't already exist
-		execute("create table if not exists " + TABLE_PROJECTS + " (" +
+		execute(String.format(QUERY_CREATE, TABLE_PROJECTS,
 			"id integer primary key, " +
-			"name text)");
-		execute("create table if not exists " + TABLE_ANALYTICS + " (" +
+			"name text"));
+		execute(String.format(QUERY_CREATE, TABLE_ANALYTICS,
 			"id integer primary key, " +
 			"project_id integer not null, " +
 			"date text not null, " +
@@ -43,7 +42,7 @@ public class DbConnection
 			"daily_download integer not null, " +
 			"daily_unique_download integer not null, " +
 			"daily_twitch_app_download integer not null, " +
-			"daily_curseforge_download integer not null)");
+			"daily_curseforge_download integer not null"));
 
 		//Log the tables and their columns
 		if(log.isDebugEnabled())
@@ -69,6 +68,7 @@ public class DbConnection
 		try
 		{
 			Statement statement = connection.createStatement();
+			log.debug("Executing query: {}", query);
 			boolean hasResults = statement.execute(query);
 			return hasResults ? statement.getResultSet() : null;
 		}
@@ -88,6 +88,7 @@ public class DbConnection
 	 */
 	public <T> List<T> execute(String query, ResultParser<T> resultParser)
 	{
+		log.debug("Executing query: {}", query);
 		ResultSet results = execute(query);
 		if(results == null)
 			return null;
@@ -104,23 +105,42 @@ public class DbConnection
 		return resultList;
 	}
 
+	/**
+	 * Inserts or updates the object in the DB
+	 */
 	public void insert(DbStorable storable)
 	{
-		ListOrderedMap<String, Object> data = new ListOrderedMap<>();
-		storable.getData(data);
-		List<String> keyList = data.keyList();
-		String keys = String.join(",", keyList);
-		String valuePlaceholders = StringUtils.repeat("?", ",", keyList.size());
+		ListOrderedMap<String, Object> allData = storable.getAllData();
+		String keys = String.join(",", allData.keyList());
+		String valuePlaceholders = StringUtils.repeat("?", ",", allData.size());
 		String query = String.format(QUERY_INSERT, storable.getTableName(), keys, valuePlaceholders);
 
 		try
 		{
 			PreparedStatement statement = connection.prepareStatement(query);
+			setAllValuesToStatement(statement, allData.valueList(), 0);
+			statement.executeUpdate();
 		}
 		catch(SQLException e)
 		{
-			e.printStackTrace();
+			log.error("Couldn't create query", e);
 		}
+	}
 
+	private void setAllValuesToStatement(PreparedStatement statement, List<Object> values, int index) throws SQLException
+	{
+		for(Object value : values)
+		{
+			if(value instanceof String)
+				statement.setString(++index, (String) value);
+			else if(value instanceof Integer)
+				statement.setInt(++index, (Integer) value);
+			else if(value instanceof Float)
+				statement.setFloat(++index, (Float) value);
+			else if(value instanceof DbStorable)
+				setAllValuesToStatement(statement, ((DbStorable) value).getData().valueList(), index);
+			else
+				throw new RuntimeException("Unhandled value type -> " + value);
+		}
 	}
 }
