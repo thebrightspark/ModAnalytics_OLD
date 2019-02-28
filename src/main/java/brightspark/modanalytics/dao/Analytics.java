@@ -40,7 +40,7 @@ public class Analytics extends DbStorable
 		id = -1;
 		date = new AnalyticDate(csvRow[0]);
 		projectId = Integer.parseInt(csvRow[1]);
-		points = Integer.parseInt(csvRow[3]);
+		points = Float.parseFloat(csvRow[3]);
 		historicalDownload = Integer.parseInt(csvRow[4]);
 		dailyDownload = Integer.parseInt(csvRow[5]);
 		dailyUniqueDownload = Integer.parseInt(csvRow[6]);

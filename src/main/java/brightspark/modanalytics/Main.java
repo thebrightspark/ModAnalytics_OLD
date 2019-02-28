@@ -26,37 +26,13 @@ public class Main
 	private static final File CSV_DIR = new File("csv");
 	private static final File CSV_INPUT_DIR = new File(CSV_DIR, "input");
 	private static final File CSV_PROCESSED_DIR = new File(CSV_DIR, "processed");
+	private static final File CSV_FAILED_DIR = new File(CSV_DIR, "failed");
 	private static final CSVParser CSV_PARSER = new CSVParser();
 
 	private static Logger log = LogManager.getLogger(Main.class);
-	private static DbConnection db;
+	protected static DbConnection db;
 	private static ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
 	//private static List<Integer> projectIds = new LinkedList<>();
-
-	/*
-	TODO: Try use Spring
-	TODO: Try use org.springframework.scheduling.quartz.CronTriggerBean to get the CSVs once per day
-
-	Example setup from ATS BR:
-
-	<bean id="refreshBetradarEventsJob" class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean">
-		<property name="targetObject" ref="feedService" />
-		<property name="targetMethod" value="cronJob" />
-		<property name="concurrent" value="false" />
-	</bean>
-
-	<bean id="refreshBetradarEventsTrigger" class="org.springframework.scheduling.quartz.CronTriggerBean">
-		<property name="jobDetail" ref="refreshBetradarEventsJob" />
-		<!-- Fire at 10pm, every day -->
-		<property name="cronExpression" value="0 0 22 * * ?" />
-		<property name="misfireInstructionName" value="MISFIRE_INSTRUCTION_DO_NOTHING" />
-	</bean>
-
-	<bean id="betradarCronRescheduler" class="ats.core.util.CronRescheduler">
-		<property name="cronTrigger" ref="refreshBetradarEventsTrigger" />
-		<property name="scheduler" ref="feedScheduler" />
-	</bean>
-	 */
 
 	public static void main(String... args)
 	{
@@ -109,66 +85,79 @@ public class Main
 		log.info("Found {} CSVs to process", files.length);
 		for(File file : files)
 		{
-			log.info("Processing CSV {}", file.getPath());
-			List<String[]> rows = null;
-			try(CSVReader reader = new CSVReaderBuilder(new FileReader(file))
-				.withSkipLines(1).withCSVParser(CSV_PARSER).build())
+			if(processCSV(file))
 			{
-				rows = reader.readAll();
+				if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
+					log.warn("Failed to move CSV {} to the processed directory!", file.getName());
 			}
-			catch(FileNotFoundException e)
+			else
 			{
-				log.error(String.format("CSV file %s couldn't be found", file.getPath()), e);
+				log.warn("Failed to process {} - will move it to failed directory");
+				if(!file.renameTo(new File(CSV_FAILED_DIR, file.getName())))
+					log.warn("Failed to move CSV {} to the failed directory!", file.getName());
 			}
-			catch(IOException e)
-			{
-				log.error(String.format("Failed to read CSV file %s", file.getPath()), e);
-			}
-			if(rows == null)
-				continue;
-
-			log.info("Read {} rows from CSV", rows.size());
-
-			//Process each row of the CSV
-			boolean ensuredProject = false;
-			for(String[] row : rows)
-			{
-				log.trace("Processing row: {}", Arrays.toString(row));
-				Analytics analytics = new Analytics(row);
-				//Check that the project exists in the DB - if not, add it
-				if(!ensuredProject)
-				{
-					ensuredProject = true;
-					Project project;
-					try
-					{
-						project = db.executeSingleResult("select * from " + DbConnection.TABLE_PROJECTS + " where id = " + analytics.getProjectId(), Project::new);
-					}
-					catch(RuntimeException e)
-					{
-						log.error("Failed to get project from DB with id " + analytics.getProjectId(), e);
-						break;
-					}
-
-					if(project == null)
-					{
-						project = new Project(analytics.getProjectId(), row[2]);
-						log.info("{} doesn't exist in DB - adding now", project);
-						db.insert(project);
-					}
-				}
-
-				//Update the DB with each of the analytics
-				db.insert(analytics);
-			}
-
-			log.info("CSV {} processed - added/updated {} analytics in DB", file.getPath(), rows.size());
-
-			if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
-				log.warn("Failed to move CSV {} to the processed directory!", file.getName());
 		}
 
 		log.info("Finished processing CSVs");
+	}
+
+	protected static boolean processCSV(File file)
+	{
+		log.info("Processing CSV {}", file.getPath());
+		List<String[]> rows = null;
+		try(CSVReader reader = new CSVReaderBuilder(new FileReader(file))
+			.withSkipLines(1).withCSVParser(CSV_PARSER).build())
+		{
+			rows = reader.readAll();
+		}
+		catch(FileNotFoundException e)
+		{
+			log.error(String.format("CSV file %s couldn't be found", file.getPath()), e);
+		}
+		catch(IOException e)
+		{
+			log.error(String.format("Failed to read CSV file %s", file.getPath()), e);
+		}
+		if(rows == null)
+			return false;
+
+		log.info("Read {} rows from CSV", rows.size());
+
+		//Process each row of the CSV
+		boolean ensuredProject = false;
+		for(String[] row : rows)
+		{
+			log.trace("Processing row: {}", Arrays.toString(row));
+			Analytics analytics = new Analytics(row);
+			//Check that the project exists in the DB - if not, add it
+			if(!ensuredProject)
+			{
+				ensuredProject = true;
+				Project project;
+				try
+				{
+					project = db.executeSingleResult("select * from " + DbConnection.TABLE_PROJECTS + " where id = " + analytics.getProjectId(), Project::new);
+				}
+				catch(RuntimeException e)
+				{
+					log.error("Failed to get project from DB with id " + analytics.getProjectId(), e);
+					return false;
+				}
+
+				if(project == null)
+				{
+					project = new Project(analytics.getProjectId(), row[2]);
+					log.info("{} doesn't exist in DB - adding now", project);
+					db.insert(project);
+				}
+			}
+
+			//Update the DB with each of the analytics
+			db.insert(analytics);
+		}
+
+		log.info("CSV {} processed - added/updated {} analytics in DB", file.getPath(), rows.size());
+		return true;
 	}
 
 
