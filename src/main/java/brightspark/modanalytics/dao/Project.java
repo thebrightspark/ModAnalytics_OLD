@@ -14,8 +14,13 @@ public class Project extends DbStorable
 
 	public Project(ResultSet resultSet) throws SQLException
 	{
-		this.id = resultSet.getInt("id");
-		this.name = resultSet.getString("name");
+		this(resultSet.getInt("id"), resultSet.getString("name"));
+	}
+
+	public Project(int id, String name)
+	{
+		this.id = id;
+		this.name = name;
 	}
 
 	public int getId()

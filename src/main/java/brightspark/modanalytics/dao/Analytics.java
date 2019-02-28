@@ -32,6 +32,22 @@ public class Analytics extends DbStorable
 		dailyCurseForgeDownload = resultSet.getInt("daily_curseforge_download");
 	}
 
+	public Analytics(String[] csvRow) throws RuntimeException
+	{
+		if(csvRow.length != 9)
+			throw new RuntimeException(String.format("Invalid CSV data! Should be 9 values but there are %s", csvRow.length));
+
+		id = -1;
+		date = new AnalyticDate(csvRow[0]);
+		projectId = Integer.parseInt(csvRow[1]);
+		points = Integer.parseInt(csvRow[3]);
+		historicalDownload = Integer.parseInt(csvRow[4]);
+		dailyDownload = Integer.parseInt(csvRow[5]);
+		dailyUniqueDownload = Integer.parseInt(csvRow[6]);
+		dailyTwitchAppDownload = Integer.parseInt(csvRow[7]);
+		dailyCurseForgeDownload = Integer.parseInt(csvRow[8]);
+	}
+
 	public int getId()
 	{
 		return id;

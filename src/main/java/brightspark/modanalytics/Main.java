@@ -1,27 +1,37 @@
 package brightspark.modanalytics;
 
+import brightspark.modanalytics.dao.Analytics;
+import brightspark.modanalytics.dao.Project;
 import brightspark.modanalytics.db.DbConnection;
-import org.apache.http.HttpEntity;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
+import com.opencsv.CSVParser;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
 import java.sql.SQLException;
-import java.util.LinkedList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Main
 {
-	private static final File CONFIG_FILE = new File("config.properties");
+	//private static final File CONFIG_FILE = new File("config.properties");
+	private static final File CSV_DIR = new File("csv");
+	private static final File CSV_INPUT_DIR = new File(CSV_DIR, "input");
+	private static final File CSV_PROCESSED_DIR = new File(CSV_DIR, "processed");
+	private static final CSVParser CSV_PARSER = new CSVParser();
 
 	private static Logger log = LogManager.getLogger(Main.class);
 	private static DbConnection db;
-	private static List<Integer> projectIds = new LinkedList<>();
+	private static ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+	//private static List<Integer> projectIds = new LinkedList<>();
 
 	/*
 	TODO: Try use Spring
@@ -55,9 +65,19 @@ public class Main
 		init();
 	}
 
+	@SuppressWarnings("ResultOfMethodCallIgnored")
 	private static void init()
 	{
-		handleProperties();
+		//handleProperties();
+
+		//Make sure CSV directories is created
+		CSV_INPUT_DIR.mkdirs();
+		CSV_PROCESSED_DIR.mkdir();
+
+		//Setup CSV input checker
+		scheduledExecutor.scheduleAtFixedRate(Main::processCSVs, 1, 10, TimeUnit.MINUTES);
+
+		//Setup SQLite DB
 		try
 		{
 			db = new DbConnection(null);
@@ -72,7 +92,88 @@ public class Main
 		}
 	}
 
-	private static void handleProperties()
+	private static void processCSVs()
+	{
+		File[] files = CSV_INPUT_DIR.listFiles();
+		if(files == null)
+		{
+			log.error("Problem getting files from {}", CSV_INPUT_DIR.getAbsolutePath());
+			return;
+		}
+		if(files.length <= 0)
+		{
+			log.debug("No CSVs to process in {}", CSV_INPUT_DIR.getPath());
+			return;
+		}
+
+		log.info("Found {} CSVs to process", files.length);
+		for(File file : files)
+		{
+			log.info("Processing CSV {}", file.getPath());
+			List<String[]> rows = null;
+			try(CSVReader reader = new CSVReaderBuilder(new FileReader(file))
+				.withSkipLines(1).withCSVParser(CSV_PARSER).build())
+			{
+				rows = reader.readAll();
+			}
+			catch(FileNotFoundException e)
+			{
+				log.error(String.format("CSV file %s couldn't be found", file.getPath()), e);
+			}
+			catch(IOException e)
+			{
+				log.error(String.format("Failed to read CSV file %s", file.getPath()), e);
+			}
+			if(rows == null)
+				continue;
+
+			log.info("Read {} rows from CSV", rows.size());
+
+			//Process each row of the CSV
+			boolean ensuredProject = false;
+			for(String[] row : rows)
+			{
+				log.trace("Processing row: {}", Arrays.toString(row));
+				Analytics analytics = new Analytics(row);
+				//Check that the project exists in the DB - if not, add it
+				if(!ensuredProject)
+				{
+					ensuredProject = true;
+					Project project;
+					try
+					{
+						project = db.executeSingleResult("select * from " + DbConnection.TABLE_PROJECTS + " where id = " + analytics.getProjectId(), Project::new);
+					}
+					catch(RuntimeException e)
+					{
+						log.error("Failed to get project from DB with id " + analytics.getProjectId(), e);
+						break;
+					}
+
+					if(project == null)
+					{
+						project = new Project(analytics.getProjectId(), row[2]);
+						log.info("{} doesn't exist in DB - adding now", project);
+						db.insert(project);
+					}
+				}
+
+				//Update the DB with each of the analytics
+				db.insert(analytics);
+			}
+
+			log.info("CSV {} processed - added/updated {} analytics in DB", file.getPath(), rows.size());
+
+			if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
+				log.warn("Failed to move CSV {} to the processed directory!", file.getName());
+		}
+
+		log.info("Finished processing CSVs");
+	}
+
+
+
+	/*private static void handleProperties()
 	{
 		Properties properties = new Properties();
 		if(!CONFIG_FILE.exists())
@@ -126,9 +227,9 @@ public class Main
 		}
 
 		log.info("Read project IDs: {}", projectIds);
-	}
+	}*/
 
-	private static void downloadLatestAnalytics() throws IOException
+	/*private static void downloadLatestAnalytics() throws IOException
 	{
 		//TODO: Get CSV data
 		String content;
@@ -151,5 +252,5 @@ public class Main
 			client.close();
 		}
 		System.out.println(content);
-	}
+	}*/
 }

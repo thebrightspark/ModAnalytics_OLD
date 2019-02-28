@@ -15,8 +15,13 @@ public class AnalyticDate
 
 	public AnalyticDate(ResultSet resultSet) throws SQLException
 	{
-		date = resultSet.getString("date");
-		String[] components = date.split("/");
+		this(resultSet.getString("date"));
+	}
+
+	public AnalyticDate(String dateString)
+	{
+		date = dateString;
+		String[] components = date.split("-");
 		day = Integer.parseInt(components[0]);
 		month = Integer.parseInt(components[1]);
 		year = Integer.parseInt(components[2]);

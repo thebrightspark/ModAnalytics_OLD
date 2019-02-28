@@ -53,7 +53,7 @@ public class DbConnection
 			{
 				List<String> rows = execute("pragma table_info('" + table + "')", results ->
 					String.format("%s (type: %s, pk: %s)", results.getString("name"), results.getString("type"), results.getInt("pk")));
-				log.info("{} -> {}", table, rows);
+				log.debug("{} -> {}", table, rows);
 			});
 		}
 	}
@@ -88,7 +88,6 @@ public class DbConnection
 	 */
 	public <T> List<T> execute(String query, ResultParser<T> resultParser)
 	{
-		log.debug("Executing query: {}", query);
 		ResultSet results = execute(query);
 		if(results == null)
 			return null;
@@ -103,6 +102,22 @@ public class DbConnection
 			log.error(String.format("Error parsing results from query '%s'", query), e);
 		}
 		return resultList;
+	}
+
+	/**
+	 * Executes a query on the DB that expects a single result and returns the result as formatted by the function
+	 * @param query Query to execute
+	 * @param resultParser Function to format the result
+	 * @param <T> The type the function will return
+	 * @return The object as a result of the function
+	 */
+	public <T> T executeSingleResult(String query, ResultParser<T> resultParser)
+	{
+		List<T> resultList = execute(query, resultParser);
+		int size = resultList.size();
+		if(size > 1)
+			throw new RuntimeException(String.format("Expected 1 result, but got %s! Query -> %s", size, query));
+		return size == 0 ? null : resultList.get(0);
 	}
 
 	/**
