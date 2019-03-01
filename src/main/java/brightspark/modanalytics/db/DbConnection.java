@@ -20,14 +20,13 @@ public class DbConnection
 	private static final String QUERY_CREATE = "create table if not exists %s (%s)";
 	private static final String QUERY_INSERT = "replace into %s (%s) values (%s)";
 
+	private String location;
 	private Connection connection;
 
-	public DbConnection(File file) throws SQLException, ClassNotFoundException
+	public DbConnection(File file) throws SQLException
 	{
-		Class.forName("org.sqlite.JDBC");
-		String location = file == null ? ":memory:" : file.getAbsolutePath();
-		connection = DriverManager.getConnection("jdbc:sqlite:" + location);
-		log.info("Connection established to DB at {}", location);
+		location = file == null ? ":memory:" : file.getAbsolutePath();
+		connect();
 
 		//Create tables if they don't already exist
 		execute(String.format(QUERY_CREATE, TABLE_PROJECTS,
@@ -55,6 +54,31 @@ public class DbConnection
 					String.format("%s (type: %s, pk: %s)", results.getString("name"), results.getString("type"), results.getInt("pk")));
 				log.debug("{} -> {}", table, rows);
 			});
+		}
+	}
+
+	/**
+	 * Connect to the DB
+	 */
+	public void connect() throws SQLException
+	{
+		connection = DriverManager.getConnection("jdbc:sqlite:" + location);
+		log.info("Connection established to DB at {}", location);
+	}
+
+	/**
+	 * Close the DB connection
+	 */
+	public void close()
+	{
+		try
+		{
+			connection.close();
+			log.info("DB connection to {} closed", location);
+		}
+		catch(SQLException e)
+		{
+			log.error("Error trying to close DB connection", e);
 		}
 	}
 

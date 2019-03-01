@@ -6,16 +6,15 @@ import brightspark.modanalytics.db.DbConnection;
 import com.opencsv.CSVParser;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
+import java.io.*;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +28,7 @@ public class Main
 	private static final File CSV_FAILED_DIR = new File(CSV_DIR, "failed");
 	private static final CSVParser CSV_PARSER = new CSVParser();
 
+	private static final Object lock = new Object();
 	private static Logger log = LogManager.getLogger(Main.class);
 	protected static DbConnection db;
 	private static ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
@@ -36,9 +36,134 @@ public class Main
 
 	public static void main(String... args)
 	{
-		//TODO: Have a way to input the CSV files
-		// Maybe check a certain directory every 10s and import (then delete/move) the CSVs into the DB
 		init();
+
+		//Quit when we get "stop" from the console
+		log.info("Enter 'stop' to shutdown\n");
+		Console console = System.console();
+		if(console != null)
+		{
+			while(true)
+			{
+				String line = console.readLine();
+				if("stop".equalsIgnoreCase(line))
+				{
+					shutdown();
+					break;
+				}
+				else
+					tryExecuteQuery(line);
+			}
+		}
+		else
+		{
+			//Fallback for dev environment
+			try(Scanner scanner = new Scanner(System.in))
+			{
+				while(true)
+				{
+					String line = scanner.nextLine();
+					if("stop".equalsIgnoreCase(line))
+					{
+						shutdown();
+						break;
+					}
+					else
+						tryExecuteQuery(line);
+				}
+			}
+		}
+		System.exit(0);
+	}
+
+	protected static void tryExecuteQuery(String query)
+	{
+		ResultSet results = db.execute(query);
+		try
+		{
+			System.out.println(resultsToString(results));
+		}
+		catch(SQLException e)
+		{
+			log.error("Failed to parse DB query result for '{}'", e);
+		}
+	}
+
+	protected static String resultsToString(ResultSet results) throws SQLException
+	{
+		ResultSetMetaData metaData = results.getMetaData();
+		int numColumns = metaData.getColumnCount();
+
+		List<List<String>> resultTable = new ArrayList<>();
+		List<String> columnNames = new ArrayList<>();
+		for(int c = 1; c <= numColumns; c++)
+			columnNames.add(metaData.getColumnName(c));
+		resultTable.add(columnNames);
+
+		//Collect all results into lists
+		while(results.next())
+		{
+			List<String> resultRow = new ArrayList<>();
+			for(int i = 1; i <= numColumns; i++)
+				resultRow.add(results.getString(i));
+			resultTable.add(resultRow);
+		}
+
+		//Find the largest value width for each column
+		List<Integer> largestWidths = new ArrayList<>(Collections.nCopies(numColumns, 0));
+		for(List<String> rowData : resultTable)
+		{
+			for(int column = 0; column < numColumns; column++)
+			{
+				String value = rowData.get(column);
+				int valueLength = value.length();
+				if(valueLength > largestWidths.get(column))
+					largestWidths.set(column, valueLength);
+			}
+		}
+
+		StringBuilder sb = new StringBuilder(" ");
+		//Column names
+		for(int i = 0; i < numColumns; i++)
+		{
+			sb.append(pad(columnNames.get(i), largestWidths.get(i)));
+			if(i < numColumns - 1)
+				sb.append(" | ");
+		}
+
+		sb.append(" \n-");
+
+		//Separator
+		for(int i = 0; i < numColumns; i++)
+		{
+			sb.append(StringUtils.repeat("-", largestWidths.get(i)));
+			if(i < numColumns - 1)
+				sb.append("-+-");
+		}
+
+		sb.append("-");
+
+		//Result rows
+		for(int row = 1; row < resultTable.size(); row++)
+		{
+			List<String> rowList = resultTable.get(row);
+			sb.append("\n ");
+			for(int i = 0; i < numColumns; i++)
+			{
+				sb.append(pad(rowList.get(i), largestWidths.get(i)));
+				if(i < numColumns - 1)
+					sb.append(" | ");
+			}
+			sb.append(" ");
+		}
+
+		return sb.toString();
+	}
+
+	private static String pad(String value, int maxLength)
+	{
+		int valueLength = value.length();
+		return StringUtils.repeat(" ", maxLength - valueLength) + value;
 	}
 
 	@SuppressWarnings("ResultOfMethodCallIgnored")
@@ -56,6 +181,7 @@ public class Main
 		//Setup SQLite DB
 		try
 		{
+			Class.forName("org.sqlite.JDBC");
 			db = new DbConnection(null);
 		}
 		catch(SQLException e)
@@ -68,37 +194,50 @@ public class Main
 		}
 	}
 
+	private static void shutdown()
+	{
+		log.info("Shutting down...");
+		synchronized(lock)
+		{
+			scheduledExecutor.shutdown();
+			db.close();
+		}
+	}
+
 	private static void processCSVs()
 	{
-		File[] files = CSV_INPUT_DIR.listFiles();
-		if(files == null)
+		synchronized(lock)
 		{
-			log.error("Problem getting files from {}", CSV_INPUT_DIR.getAbsolutePath());
-			return;
-		}
-		if(files.length <= 0)
-		{
-			log.debug("No CSVs to process in {}", CSV_INPUT_DIR.getPath());
-			return;
-		}
-
-		log.info("Found {} CSVs to process", files.length);
-		for(File file : files)
-		{
-			if(processCSV(file))
+			File[] files = CSV_INPUT_DIR.listFiles();
+			if(files == null)
 			{
-				if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
-					log.warn("Failed to move CSV {} to the processed directory!", file.getName());
+				log.error("Problem getting files from {}", CSV_INPUT_DIR.getAbsolutePath());
+				return;
 			}
-			else
+			if(files.length <= 0)
 			{
-				log.warn("Failed to process {} - will move it to failed directory");
-				if(!file.renameTo(new File(CSV_FAILED_DIR, file.getName())))
-					log.warn("Failed to move CSV {} to the failed directory!", file.getName());
+				log.debug("No CSVs to process in {}", CSV_INPUT_DIR.getPath());
+				return;
 			}
-		}
 
-		log.info("Finished processing CSVs");
+			log.info("Found {} CSVs to process", files.length);
+			for(File file : files)
+			{
+				if(processCSV(file))
+				{
+					if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
+						log.warn("Failed to move CSV {} to the processed directory!", file.getName());
+				}
+				else
+				{
+					log.warn("Failed to process {} - will move it to failed directory");
+					if(!file.renameTo(new File(CSV_FAILED_DIR, file.getName())))
+						log.warn("Failed to move CSV {} to the failed directory!", file.getName());
+				}
+			}
+
+			log.info("Finished processing CSVs");
+		}
 	}
 
 	protected static boolean processCSV(File file)

@@ -103,14 +103,14 @@ public class Analytics extends DbStorable
 	public void getData(Map<String, Object> data)
 	{
 		data.put("id", id);
-		data.put("projectId", projectId);
+		data.put("project_id", projectId);
 		data.put("date", date);
 		data.put("points", points);
-		data.put("historicalDownload", historicalDownload);
-		data.put("dailyDownload", dailyDownload);
-		data.put("dailyUniqueDownload", dailyUniqueDownload);
-		data.put("dailyTwitchAppDownload", dailyTwitchAppDownload);
-		data.put("dailyCurseForgeDownload", dailyCurseForgeDownload);
+		data.put("historical_download", historicalDownload);
+		data.put("daily_download", dailyDownload);
+		data.put("daily_unique_download", dailyUniqueDownload);
+		data.put("daily_twitch_app_download", dailyTwitchAppDownload);
+		data.put("daily_curseforge_download", dailyCurseForgeDownload);
 	}
 
 	@Override
