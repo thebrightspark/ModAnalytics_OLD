@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
-import java.sql.ResultSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,16 +39,14 @@ class MainTest
 	}
 
 	@Test
-	void testResultsToString() throws Exception
+	void testResultsToString()
 	{
 		Main.db = new DbConnection(null);
 
 		Main.db.execute("insert into projects (id, name) values (1, 'test1')");
 		Main.db.execute("insert into projects (id, name) values (2, 'test2')");
 
-		ResultSet results = Main.db.execute("select * from projects");
-		String text = Main.resultsToString(results);
-		Main.db.close();
+		String text = Main.db.executeSingleResult("select * from projects", Main::resultsToString);
 		System.out.println(text);
 		assertEquals(
 			" id |  name \n" +

@@ -1,18 +1,37 @@
 package brightspark.modanalytics.db;
 
 import org.apache.commons.collections4.map.ListOrderedMap;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
 
 public abstract class DbStorable
 {
+	protected String insertQuery = String.format(DbConnection.QUERY_INSERT, getTableName(), getColumns(), getValuePlaceholders());
+
 	/**
 	 * Gets the table name for this type
 	 */
-	public abstract String getTableName();
+	protected abstract String getTableName();
+
+	/**
+	 * Gets the table columns for this type used for the insert query
+	 */
+	protected abstract String getColumns();
+
+	/**
+	 * Gets the a comma separated String of '?' for the insert query
+	 */
+	private String getValuePlaceholders()
+	{
+		return StringUtils.repeat("?", ",", StringUtils.countMatches(getColumns(), ',') + 1);
+	}
 
 	/**
 	 * Gets all of the data in this object and returns it in a {@link ListOrderedMap}
@@ -53,6 +72,8 @@ public abstract class DbStorable
 		}
 		return allData;
 	}
+
+	public abstract PreparedStatement createStatement(Connection connection) throws SQLException;
 
 	@Override
 	public String toString()

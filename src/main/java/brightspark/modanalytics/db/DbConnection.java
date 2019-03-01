@@ -1,8 +1,6 @@
 package brightspark.modanalytics.db;
 
 import brightspark.modanalytics.ResultParser;
-import org.apache.commons.collections4.map.ListOrderedMap;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -18,22 +16,21 @@ public class DbConnection
 	public static final String TABLE_ANALYTICS = "analytics";
 
 	private static final String QUERY_CREATE = "create table if not exists %s (%s)";
-	private static final String QUERY_INSERT = "replace into %s (%s) values (%s)";
+	public static final String QUERY_INSERT = "replace into %s (%s) values (%s)";
 
 	private String location;
 	private Connection connection;
 
-	public DbConnection(File file) throws SQLException
+	public DbConnection(File file)
 	{
 		location = file == null ? ":memory:" : file.getAbsolutePath();
-		connect();
 
 		//Create tables if they don't already exist
 		execute(String.format(QUERY_CREATE, TABLE_PROJECTS,
 			"id integer primary key, " +
-			"name text"));
+			"name text not null"));
 		execute(String.format(QUERY_CREATE, TABLE_ANALYTICS,
-			"id integer primary key, " +
+			"id integer primary key autoincrement, " +
 			"project_id integer not null, " +
 			"date text not null, " +
 			"points real not null, " +
@@ -58,49 +55,40 @@ public class DbConnection
 	}
 
 	/**
-	 * Connect to the DB
+	 * Gets a connection to the DB
 	 */
-	public void connect() throws SQLException
-	{
-		connection = DriverManager.getConnection("jdbc:sqlite:" + location);
-		log.info("Connection established to DB at {}", location);
-	}
-
-	/**
-	 * Close the DB connection
-	 */
-	public void close()
+	private Connection getConnection()
 	{
 		try
 		{
-			connection.close();
-			log.info("DB connection to {} closed", location);
+			return connection != null && !connection.isClosed() ?
+					connection :
+					(connection = DriverManager.getConnection("jdbc:sqlite:" + location));
 		}
 		catch(SQLException e)
 		{
-			log.error("Error trying to close DB connection", e);
+			log.error("Couldn't open connection to DB", e);
+			System.exit(0);
 		}
+		return null;
 	}
 
 	/**
-	 * Executes a query on the DB and returns the results in a {@link ResultSet} if any
+	 * Executes a query on the DB and returns no result
 	 * @param query Query to execute
-	 * @return Results
 	 */
-	public ResultSet execute(String query)
+	public void execute(String query)
 	{
-		try
+		log.debug("Executing query: {}", query);
+		try(Statement statement = getConnection().createStatement())
 		{
-			Statement statement = connection.createStatement();
-			log.debug("Executing query: {}", query);
-			boolean hasResults = statement.execute(query);
-			return hasResults ? statement.getResultSet() : null;
+			statement.execute(query);
+			log.trace("Executed query");
 		}
 		catch(SQLException e)
 		{
 			log.error(String.format("Couldn't execute query '%s'", query), e);
 		}
-		return null;
 	}
 
 	/**
@@ -112,20 +100,21 @@ public class DbConnection
 	 */
 	public <T> List<T> execute(String query, ResultParser<T> resultParser)
 	{
-		ResultSet results = execute(query);
-		if(results == null)
-			return null;
-		List<T> resultList = new LinkedList<>();
-		try
+		log.debug("Executing query: {}", query);
+		try(Statement statement = getConnection().createStatement();
+		    ResultSet results = statement.executeQuery(query))
 		{
+			List<T> resultList = new LinkedList<>();
 			while(results.next())
 				resultList.add(resultParser.apply(results));
+			log.trace("Executed query");
+			return resultList;
 		}
 		catch(SQLException e)
 		{
 			log.error(String.format("Error parsing results from query '%s'", query), e);
 		}
-		return resultList;
+		return null;
 	}
 
 	/**
@@ -138,8 +127,8 @@ public class DbConnection
 	public <T> T executeSingleResult(String query, ResultParser<T> resultParser)
 	{
 		List<T> resultList = execute(query, resultParser);
-		int size = resultList.size();
-		if(size > 1)
+		Integer size = null;
+		if(resultList == null || (size = resultList.size()) > 1)
 			throw new RuntimeException(String.format("Expected 1 result, but got %s! Query -> %s", size, query));
 		return size == 0 ? null : resultList.get(0);
 	}
@@ -149,16 +138,11 @@ public class DbConnection
 	 */
 	public void insert(DbStorable storable)
 	{
-		ListOrderedMap<String, Object> allData = storable.getAllData();
-		String keys = String.join(",", allData.keyList());
-		String valuePlaceholders = StringUtils.repeat("?", ",", allData.size());
-		String query = String.format(QUERY_INSERT, storable.getTableName(), keys, valuePlaceholders);
-
-		try
+		try(PreparedStatement statement = storable.createStatement(getConnection()))
 		{
-			PreparedStatement statement = connection.prepareStatement(query);
-			setAllValuesToStatement(statement, allData.valueList(), 0);
+			log.debug("Executing insert of {}", storable);
 			statement.executeUpdate();
+			log.trace("Executed query");
 		}
 		catch(SQLException e)
 		{

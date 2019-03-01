@@ -78,14 +78,15 @@ public class Main
 
 	protected static void tryExecuteQuery(String query)
 	{
-		ResultSet results = db.execute(query);
+		if(StringUtils.isEmpty(query.trim()))
+			return;
 		try
 		{
-			System.out.println(resultsToString(results));
+			System.out.println(db.executeSingleResult(query, Main::resultsToString));
 		}
-		catch(SQLException e)
+		catch(Exception e)
 		{
-			log.error("Failed to parse DB query result for '{}'", e);
+			log.error("Error trying to use console input as query", e);
 		}
 	}
 
@@ -101,13 +102,14 @@ public class Main
 		resultTable.add(columnNames);
 
 		//Collect all results into lists
-		while(results.next())
+		do
 		{
 			List<String> resultRow = new ArrayList<>();
 			for(int i = 1; i <= numColumns; i++)
 				resultRow.add(results.getString(i));
 			resultTable.add(resultRow);
 		}
+		while(results.next());
 
 		//Find the largest value width for each column
 		List<Integer> largestWidths = new ArrayList<>(Collections.nCopies(numColumns, 0));
@@ -174,24 +176,22 @@ public class Main
 		//Make sure CSV directories is created
 		CSV_INPUT_DIR.mkdirs();
 		CSV_PROCESSED_DIR.mkdir();
+		CSV_FAILED_DIR.mkdir();
 
 		//Setup CSV input checker
-		scheduledExecutor.scheduleAtFixedRate(Main::processCSVs, 1, 10, TimeUnit.MINUTES);
+		scheduledExecutor.scheduleAtFixedRate(Main::processCSVs, 5, 30, TimeUnit.SECONDS);
 
 		//Setup SQLite DB
 		try
 		{
 			Class.forName("org.sqlite.JDBC");
-			db = new DbConnection(null);
-		}
-		catch(SQLException e)
-		{
-			log.error("Couldn't connect to the DB", e);
 		}
 		catch(ClassNotFoundException e)
 		{
 			log.error("Couldn't initialise JDBC", e);
+			System.exit(0);
 		}
+		db = new DbConnection(null);
 	}
 
 	private static void shutdown()
@@ -200,7 +200,6 @@ public class Main
 		synchronized(lock)
 		{
 			scheduledExecutor.shutdown();
-			db.close();
 		}
 	}
 
@@ -223,7 +222,17 @@ public class Main
 			log.info("Found {} CSVs to process", files.length);
 			for(File file : files)
 			{
-				if(processCSV(file))
+				boolean result = false;
+				try
+				{
+					result = processCSV(file);
+				}
+				catch(Exception e)
+				{
+					log.error(String.format("Failed to process CSV %s", file.getName()), e);
+				}
+
+				if(result)
 				{
 					if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
 						log.warn("Failed to move CSV {} to the processed directory!", file.getName());

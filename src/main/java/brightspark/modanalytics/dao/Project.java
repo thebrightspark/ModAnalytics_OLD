@@ -3,6 +3,8 @@ package brightspark.modanalytics.dao;
 import brightspark.modanalytics.db.DbConnection;
 import brightspark.modanalytics.db.DbStorable;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
@@ -40,10 +42,25 @@ public class Project extends DbStorable
 	}
 
 	@Override
+	protected String getColumns()
+	{
+		return "id,name";
+	}
+
+	@Override
 	public void getData(Map<String, Object> data)
 	{
 		data.put("id", id);
 		data.put("name", name);
+	}
+
+	@Override
+	public PreparedStatement createStatement(Connection connection) throws SQLException
+	{
+		PreparedStatement statement = connection.prepareStatement(insertQuery);
+		statement.setInt(1, id);
+		statement.setString(2, name);
+		return statement;
 	}
 
 	@Override

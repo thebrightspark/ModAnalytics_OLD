@@ -3,6 +3,8 @@ package brightspark.modanalytics.dao;
 import brightspark.modanalytics.db.DbConnection;
 import brightspark.modanalytics.db.DbStorable;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
@@ -100,6 +102,12 @@ public class Analytics extends DbStorable
 	}
 
 	@Override
+	protected String getColumns()
+	{
+		return "project_id,date,points,historical_download,daily_download,daily_unique_download,daily_twitch_app_download,daily_curseforge_download";
+	}
+
+	@Override
 	public void getData(Map<String, Object> data)
 	{
 		data.put("id", id);
@@ -111,6 +119,21 @@ public class Analytics extends DbStorable
 		data.put("daily_unique_download", dailyUniqueDownload);
 		data.put("daily_twitch_app_download", dailyTwitchAppDownload);
 		data.put("daily_curseforge_download", dailyCurseForgeDownload);
+	}
+
+	@Override
+	public PreparedStatement createStatement(Connection connection) throws SQLException
+	{
+		PreparedStatement statement = connection.prepareStatement(insertQuery);
+		statement.setInt(1, projectId);
+		statement.setString(2, date.getDate());
+		statement.setFloat(3, points);
+		statement.setInt(4, historicalDownload);
+		statement.setInt(5, dailyDownload);
+		statement.setInt(6, dailyUniqueDownload);
+		statement.setInt(7, dailyTwitchAppDownload);
+		statement.setInt(8, dailyCurseForgeDownload);
+		return statement;
 	}
 
 	@Override
