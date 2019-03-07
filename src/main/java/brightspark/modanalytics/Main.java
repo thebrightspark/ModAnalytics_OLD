@@ -3,6 +3,8 @@ package brightspark.modanalytics;
 import brightspark.modanalytics.dao.Analytics;
 import brightspark.modanalytics.dao.Project;
 import brightspark.modanalytics.db.DbConnection;
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
 import com.opencsv.CSVParser;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
@@ -21,68 +23,146 @@ import java.util.concurrent.TimeUnit;
 
 public class Main
 {
-	//private static final File CONFIG_FILE = new File("config.properties");
-	private static final File CSV_DIR = new File("csv");
-	private static final File CSV_INPUT_DIR = new File(CSV_DIR, "input");
-	private static final File CSV_PROCESSED_DIR = new File(CSV_DIR, "processed");
-	private static final File CSV_FAILED_DIR = new File(CSV_DIR, "failed");
-	private static final CSVParser CSV_PARSER = new CSVParser();
+	private static final File DEFAULT_DB_FILE = null; //TODO: Change this when done testing
+	private static final File DEFAULT_CSV_DIR = new File("csv");
+	private File csvInputDir = new File(DEFAULT_CSV_DIR, "input");
+	private File csvProcessedDir = new File(DEFAULT_CSV_DIR, "processed");
+	private File csvFailedDir = new File(DEFAULT_CSV_DIR, "failed");
 
+	private static final CSVParser CSV_PARSER = new CSVParser();
 	private static final Object lock = new Object();
 	private static Logger log = LogManager.getLogger(Main.class);
-	protected static DbConnection db;
+	static DbConnection db;
 	private static ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
-	//private static List<Integer> projectIds = new LinkedList<>();
+
+	@Parameter(names = "-help", description = "Display this help", help = true)
+	private boolean help;
+
+	@Parameter(names = "-file", description = "Specific file to process. Can't be used with -dir", validateWith = FileParamValidator.class)
+	private String filePath;
+
+	@Parameter(names = "-dir", description = "Directory path. Can't be used with -file", validateWith = DirParamValidator.class)
+	private String dirPath;
+
+	@Parameter(names = "-db", description = "Database file location", validateWith = FileParamValidator.class)
+	private String dbPath;
 
 	public static void main(String... args)
 	{
+		Main main = new Main();
+
+		JCommander jCommander = JCommander.newBuilder()
+			.addObject(main)
+			.args(args)
+			.build();
+		jCommander.setProgramName("ModAnalytics");
+
+		boolean showUsage = main.help;
+
+		if(main.filePath != null && main.dirPath != null)
+		{
+			log.warn("Can't use both '-file' and '-dir'!");
+			showUsage = true;
+		}
+		if(showUsage)
+		{
+			jCommander.usage();
+			return;
+		}
+
+		main.run();
+		System.exit(0);
+	}
+
+	private void run()
+	{
 		init();
 
-		//Quit when we get "stop" from the console
-		log.info("Enter 'stop' to shutdown\n");
-		Console console = System.console();
-		if(console != null)
+		if(filePath != null)
 		{
-			while(true)
-			{
-				String line = console.readLine();
-				if("stop".equalsIgnoreCase(line))
-				{
-					shutdown();
-					break;
-				}
-				else
-					tryExecuteQuery(line);
-			}
+			//Just process the single file then quit
+			handleCSV(new File(filePath));
 		}
 		else
 		{
-			//Fallback for dev environment
-			try(Scanner scanner = new Scanner(System.in))
+			//Quit when we get "stop" from the console
+			log.info("Enter 'stop' to shutdown\n");
+			Console console = System.console();
+			if(console != null)
 			{
 				while(true)
 				{
-					String line = scanner.nextLine();
+					String line = console.readLine();
 					if("stop".equalsIgnoreCase(line))
-					{
-						shutdown();
 						break;
-					}
 					else
 						tryExecuteQuery(line);
 				}
 			}
+			else
+			{
+				//Fallback for dev environment
+				try(Scanner scanner = new Scanner(System.in))
+				{
+					while(true)
+					{
+						String line = scanner.nextLine();
+						if("stop".equalsIgnoreCase(line))
+							break;
+						else
+							tryExecuteQuery(line);
+					}
+				}
+			}
 		}
-		System.exit(0);
+		shutdown();
 	}
 
-	protected static void tryExecuteQuery(String query)
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+	private void init()
+	{
+		File csvDir = dirPath == null ? DEFAULT_CSV_DIR : new File(dirPath);
+		csvInputDir = new File(csvDir, "input");
+		csvProcessedDir = new File(csvDir, "processed");
+		csvFailedDir = new File(csvDir, "failed");
+
+		//Make sure CSV directories is created
+		csvInputDir.mkdirs();
+		csvProcessedDir.mkdir();
+		csvFailedDir.mkdir();
+
+		//Setup CSV input checker
+		if(filePath == null)
+			scheduledExecutor.scheduleAtFixedRate(this::processCSVs, 5, 30, TimeUnit.SECONDS);
+
+		//Setup SQLite DB
+		try
+		{
+			Class.forName("org.sqlite.JDBC");
+		}
+		catch(ClassNotFoundException e)
+		{
+			log.error("Couldn't initialise JDBC", e);
+		}
+		db = new DbConnection(dbPath == null ? DEFAULT_DB_FILE : new File(dbPath));
+	}
+
+	private void shutdown()
+	{
+		log.info("Shutting down...");
+		synchronized(lock)
+		{
+			scheduledExecutor.shutdown();
+		}
+	}
+
+	private void tryExecuteQuery(String query)
 	{
 		if(StringUtils.isEmpty(query.trim()))
 			return;
 		try
 		{
-			System.out.println(db.executeSingleResult(query, Main::resultsToString));
+			System.out.println(db.executeSingleResult(query, this::resultsToString));
 		}
 		catch(Exception e)
 		{
@@ -90,7 +170,7 @@ public class Main
 		}
 	}
 
-	protected static String resultsToString(ResultSet results) throws SQLException
+	String resultsToString(ResultSet results) throws SQLException
 	{
 		ResultSetMetaData metaData = results.getMetaData();
 		int numColumns = metaData.getColumnCount();
@@ -162,94 +242,61 @@ public class Main
 		return sb.toString();
 	}
 
-	private static String pad(String value, int maxLength)
+	private String pad(String value, int maxLength)
 	{
 		int valueLength = value.length();
 		return StringUtils.repeat(" ", maxLength - valueLength) + value;
 	}
 
-	@SuppressWarnings("ResultOfMethodCallIgnored")
-	private static void init()
-	{
-		//handleProperties();
-
-		//Make sure CSV directories is created
-		CSV_INPUT_DIR.mkdirs();
-		CSV_PROCESSED_DIR.mkdir();
-		CSV_FAILED_DIR.mkdir();
-
-		//Setup CSV input checker
-		scheduledExecutor.scheduleAtFixedRate(Main::processCSVs, 5, 30, TimeUnit.SECONDS);
-
-		//Setup SQLite DB
-		try
-		{
-			Class.forName("org.sqlite.JDBC");
-		}
-		catch(ClassNotFoundException e)
-		{
-			log.error("Couldn't initialise JDBC", e);
-			System.exit(0);
-		}
-		db = new DbConnection(null);
-	}
-
-	private static void shutdown()
-	{
-		log.info("Shutting down...");
-		synchronized(lock)
-		{
-			scheduledExecutor.shutdown();
-		}
-	}
-
-	private static void processCSVs()
+	private void processCSVs()
 	{
 		synchronized(lock)
 		{
-			File[] files = CSV_INPUT_DIR.listFiles();
+			File[] files = csvInputDir.listFiles();
 			if(files == null)
 			{
-				log.error("Problem getting files from {}", CSV_INPUT_DIR.getAbsolutePath());
+				log.error("Problem getting files from {}", csvInputDir.getAbsolutePath());
 				return;
 			}
 			if(files.length <= 0)
 			{
-				log.debug("No CSVs to process in {}", CSV_INPUT_DIR.getPath());
+				log.debug("No CSVs to process in {}", csvInputDir.getPath());
 				return;
 			}
 
 			log.info("Found {} CSVs to process", files.length);
 			for(File file : files)
-			{
-				boolean result = false;
-				try
-				{
-					result = processCSV(file);
-				}
-				catch(Exception e)
-				{
-					log.error(String.format("Failed to process CSV %s", file.getName()), e);
-				}
-
-				if(result)
-				{
-					if(!file.renameTo(new File(CSV_PROCESSED_DIR, file.getName())))
-						log.warn("Failed to move CSV {} to the processed directory!", file.getName());
-				}
-				else
-				{
-					log.warn("Failed to process {} - will move it to failed directory");
-					if(!file.renameTo(new File(CSV_FAILED_DIR, file.getName())))
-						log.warn("Failed to move CSV {} to the failed directory!", file.getName());
-				}
-			}
+				handleCSV(file);
 
 			log.info("Finished processing CSVs");
 		}
 	}
 
-	protected static boolean processCSV(File file)
+	private void handleCSV(File file)
+	{
+		boolean result = false;
+		try
+		{
+			result = processCSV(file);
+		}
+		catch(Exception e)
+		{
+			log.error(String.format("Failed to process CSV %s", file.getName()), e);
+		}
+		if(result)
+		{
+			if(!file.renameTo(new File(csvProcessedDir, file.getName())))
+				log.warn("Failed to move CSV {} to the processed directory!", file.getName());
+		}
+		else
+		{
+			log.warn("Failed to process {} - will move it to failed directory");
+			if(!file.renameTo(new File(csvFailedDir, file.getName())))
+				log.warn("Failed to move CSV {} to the failed directory!", file.getName());
+		}
+	}
+
+	boolean processCSV(File file)
 	{
 		log.info("Processing CSV {}", file.getPath());
 		List<String[]> rows = null;
@@ -307,87 +354,4 @@ public class Main
 		log.info("CSV {} processed - added/updated {} analytics in DB", file.getPath(), rows.size());
 		return true;
 	}
-
-
-
-	/*private static void handleProperties()
-	{
-		Properties properties = new Properties();
-		if(!CONFIG_FILE.exists())
-		{
-			//If not config file, then generate default and exit
-			log.error("No config file found at {}. Generating default but user must enter project IDs into file.", CONFIG_FILE.getAbsolutePath());
-			properties.setProperty("projectIds", "");
-			try(OutputStream output = new FileOutputStream(CONFIG_FILE))
-			{
-				properties.store(output, null);
-			}
-			catch(IOException e)
-			{
-				log.error("Failed to create default config file at " + CONFIG_FILE.getAbsolutePath(), e);
-			}
-			return;
-		}
-
-		//Load properties
-		try(InputStream input = new FileInputStream(CONFIG_FILE))
-		{
-			properties.load(input);
-		}
-		catch(IOException e)
-		{
-			log.error("Failed to load config file at " + CONFIG_FILE.getAbsolutePath(), e);
-			System.exit(0);
-		}
-
-		//Read properties
-		String projectIdsString = properties.getProperty("projectIds").replaceAll(" ", "");
-		if(projectIdsString.isEmpty())
-		{
-			log.error("No project IDs defined in config file {}", CONFIG_FILE.getAbsolutePath());
-		}
-		for(String idString : projectIdsString.split(","))
-		{
-			try
-			{
-				projectIds.add(Integer.parseInt(idString));
-			}
-			catch(NumberFormatException e)
-			{
-				log.error("Couldn't parse project ID '{}' as an integer", idString);
-			}
-		}
-		if(projectIds.isEmpty())
-		{
-			log.error("No project IDs successfully read from config file " + CONFIG_FILE.getAbsolutePath());
-			System.exit(0);
-		}
-
-		log.info("Read project IDs: {}", projectIds);
-	}*/
-
-	/*private static void downloadLatestAnalytics() throws IOException
-	{
-		//TODO: Get CSV data
-		String content;
-		CloseableHttpClient client = HttpClients.createDefault();
-		try
-		{
-			content = client.execute(new HttpGet("https://minecraft.curseforge.com/dashboard/project/237240/exportcsv"), response ->
-			{
-				int status = response.getStatusLine().getStatusCode();
-				if(status >= 200 && status < 300)
-				{
-					HttpEntity entity = response.getEntity();
-					return entity == null ? null : EntityUtils.toString(entity);
-				}
-				return null;
-			});
-		}
-		finally
-		{
-			client.close();
-		}
-		System.out.println(content);
-	}*/
 }

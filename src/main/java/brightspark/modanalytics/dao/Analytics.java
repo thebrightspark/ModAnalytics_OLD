@@ -112,7 +112,7 @@ public class Analytics extends DbStorable
 	{
 		data.put("id", id);
 		data.put("project_id", projectId);
-		data.put("date", date);
+		data.put("date", date.toString());
 		data.put("points", points);
 		data.put("historical_download", historicalDownload);
 		data.put("daily_download", dailyDownload);

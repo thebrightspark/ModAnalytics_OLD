@@ -1,4 +1,4 @@
-package brightspark.modanalytics;
+package brightspark.modanalytics.db;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;

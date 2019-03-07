@@ -15,6 +15,7 @@ import static org.mockito.Mockito.*;
 
 class MainTest
 {
+	private Main main;
 	private File exampleAnalyticsFile;
 
 	@BeforeEach
@@ -22,6 +23,7 @@ class MainTest
 	{
 		//MockitoAnnotations.initMocks(this);
 		//System.out.println(Thread.currentThread().getContextClassLoader().getResource("."));
+		main = new Main();
 		exampleAnalyticsFile = new File(Thread.currentThread().getContextClassLoader().getResource("ExampleAnalytics.csv").getPath());
 	}
 
@@ -34,7 +36,7 @@ class MainTest
 		doAnswer(invocationOnMock -> added[0]++).when(Main.db).insert(any());
 		doReturn(new Project(238858,"Glowing Glass")).when(Main.db).executeSingleResult(anyString(), any());
 
-		assertTrue(Main.processCSV(exampleAnalyticsFile));
+		assertTrue(main.processCSV(exampleAnalyticsFile));
 		assertEquals(91, added[0]);
 	}
 
@@ -46,7 +48,7 @@ class MainTest
 		Main.db.execute("insert into projects (id, name) values (1, 'test1')");
 		Main.db.execute("insert into projects (id, name) values (2, 'test2')");
 
-		String text = Main.db.executeSingleResult("select * from projects", Main::resultsToString);
+		String text = Main.db.executeSingleResult("select * from projects", main::resultsToString);
 		System.out.println(text);
 		assertEquals(
 			" id |  name \n" +
