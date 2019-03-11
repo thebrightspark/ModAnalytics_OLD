@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.*;
+import java.nio.file.*;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -23,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 
 public class Main
 {
-	private static final File DEFAULT_DB_FILE = null; //TODO: Change this when done testing
+	private static final File DEFAULT_DB_FILE = new File("db");
 	private static final File DEFAULT_CSV_DIR = new File("csv");
 	private File csvInputDir = new File(DEFAULT_CSV_DIR, "input");
 	private File csvProcessedDir = new File(DEFAULT_CSV_DIR, "processed");
@@ -33,7 +34,8 @@ public class Main
 	private static final Object lock = new Object();
 	private static Logger log = LogManager.getLogger(Main.class);
 	static DbConnection db;
-	private static ScheduledExecutorService scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+	private static ScheduledExecutorService scheduledExecutor = null;
+	private static Thread watcherThread = null;
 
 	@Parameter(names = "-help", description = "Display this help", help = true)
 	private boolean help;
@@ -71,7 +73,6 @@ public class Main
 		}
 
 		main.run();
-		System.exit(0);
 	}
 
 	private void run()
@@ -121,9 +122,74 @@ public class Main
 		csvProcessedDir.mkdir();
 		csvFailedDir.mkdir();
 
-		//Setup CSV input checker
+		//Setup CSV input directory watcher
 		if(filePath == null)
-			scheduledExecutor.scheduleAtFixedRate(this::processCSVs, 5, 30, TimeUnit.SECONDS);
+		{
+			try
+			{
+				// https://docs.oracle.com/javase/tutorial/essential/io/notification.html
+				//Create and register watcher for CSV input directory
+				WatchService watcher = FileSystems.getDefault().newWatchService();
+				Path dir = csvInputDir.toPath();
+				WatchKey key = dir.register(watcher, StandardWatchEventKinds.ENTRY_CREATE);
+
+				//Create
+				watcherThread = new Thread(() ->
+				{
+					while(true)
+					{
+						//Wait for file creation
+						WatchKey notifiedKey;
+						try
+						{
+							notifiedKey = watcher.take();
+						}
+						catch(InterruptedException e)
+						{
+							log.error("CSV input directory watcher interrupted while waiting", e);
+							return;
+						}
+
+						if(!key.equals(notifiedKey))
+							continue;
+
+						//Handle each file creation
+						for(WatchEvent<?> event : notifiedKey.pollEvents())
+						{
+							if(event.kind().equals(StandardWatchEventKinds.OVERFLOW))
+								continue;
+
+							Path name = (Path) event.context();
+							Path child = dir.resolve(name);
+							log.debug("File creation detected: {}", child);
+
+							handleCSV(child.toFile());
+						}
+
+						//Reset key - if no longer valid, then quit
+						if(!notifiedKey.reset())
+						{
+							log.error("CSV input directory watcher no longer valid!");
+							shutdown();
+							return;
+						}
+					}
+				});
+				watcherThread.start();
+
+				//Process any existing CSV
+				processCSVs();
+			}
+			catch(IOException e)
+			{
+				log.error("Error creating CSV input directory watcher", e);
+				log.info("Falling back to scheduled executor service...");
+				//Setup CSV input checker
+				scheduledExecutor = Executors.newSingleThreadScheduledExecutor();
+				//Runs every 30mins
+				scheduledExecutor.scheduleAtFixedRate(this::processCSVs, 5, 1800, TimeUnit.SECONDS);
+			}
+		}
 
 		//Setup SQLite DB
 		try
@@ -142,7 +208,10 @@ public class Main
 		log.info("Shutting down...");
 		synchronized(lock)
 		{
-			scheduledExecutor.shutdown();
+			if(watcherThread != null)
+				watcherThread.interrupt();
+			if(scheduledExecutor != null)
+				scheduledExecutor.shutdown();
 		}
 	}
 
