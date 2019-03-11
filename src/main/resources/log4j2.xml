@@ -27,11 +27,11 @@
         <Property name="logPattern">%d [%p] %c{1} (%t): %m%n</Property>
 
         <!-- Log level colors -->
-        <Property name="levelFatal">dark red</Property>
-        <Property name="levelError">red</Property>
+        <Property name="levelFatal">red</Property>
+        <Property name="levelError">bright red</Property>
         <Property name="levelWarn">yellow</Property>
-        <Property name="levelInfo">black</Property>
-        <Property name="levelDebug">blue</Property>
+        <Property name="levelInfo">white</Property>
+        <Property name="levelDebug">bright blue</Property>
         <Property name="levelTrace">bright magenta</Property>
     </Properties>
 
