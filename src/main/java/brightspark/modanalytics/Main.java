@@ -90,28 +90,18 @@ public class Main
 			Console console = System.console();
 			if(console != null)
 			{
-				while(true)
-				{
-					String line = console.readLine();
-					if("stop".equalsIgnoreCase(line))
-						break;
-					else
-						tryExecuteQuery(line);
-				}
+				String line;
+				while(!"stop".equalsIgnoreCase(line = console.readLine()))
+					tryExecuteQuery(line);
 			}
 			else
 			{
 				//Fallback for dev environment
 				try(Scanner scanner = new Scanner(System.in))
 				{
-					while(true)
-					{
-						String line = scanner.nextLine();
-						if("stop".equalsIgnoreCase(line))
-							break;
-						else
-							tryExecuteQuery(line);
-					}
+					String line;
+					while(!"stop".equalsIgnoreCase(line = scanner.nextLine()))
+						tryExecuteQuery(line);
 				}
 			}
 		}

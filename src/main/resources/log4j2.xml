@@ -43,15 +43,16 @@
         <RollingFile name="File" fileName="${logPath}/${logFileName}.log" filePattern="${logPath}/${logFileName}_${rollingFileSuffix}.log.gz" immediateFlush="true">
             <PatternLayout pattern="${logPattern}"/>
             <Policies>
-                <!-- Will only create a new log file on application start -->
+                <!-- Will create a new log file on application start -->
                 <OnStartupTriggeringPolicy/>
+                <SizeBasedTriggeringPolicy size="10 MB"/>
             </Policies>
         </RollingFile>
     </Appenders>
 
     <Loggers>
         <Root level="all">
-            <!--<AppenderRef ref="File" level="${logLevelFile}"/>-->
+            <AppenderRef ref="File" level="${logLevelFile}"/>
             <AppenderRef ref="Console" level="${logLevelConsole}"/>
         </Root>
     </Loggers>
