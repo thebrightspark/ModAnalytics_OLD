@@ -36,6 +36,7 @@ public class Main
 	static DbConnection db;
 	private static ScheduledExecutorService scheduledExecutor = null;
 	private static Thread watcherThread = null;
+	private boolean shuttingDown = false;
 
 	@Parameter(names = "-help", description = "Display this help", help = true)
 	private boolean help;
@@ -112,6 +113,17 @@ public class Main
 	@SuppressWarnings("ResultOfMethodCallIgnored")
 	private void init()
 	{
+		//Setup SQLite DB
+		try
+		{
+			Class.forName("org.sqlite.JDBC");
+		}
+		catch(ClassNotFoundException e)
+		{
+			log.error("Couldn't initialise JDBC", e);
+		}
+		db = new DbConnection(dbPath == null ? DEFAULT_DB_FILE : new File(dbPath));
+
 		File csvDir = dirPath == null ? DEFAULT_CSV_DIR : new File(dirPath);
 		csvInputDir = new File(csvDir, "input");
 		csvProcessedDir = new File(csvDir, "processed");
@@ -146,7 +158,8 @@ public class Main
 						}
 						catch(InterruptedException e)
 						{
-							log.error("CSV input directory watcher interrupted while waiting", e);
+							if(!shuttingDown)
+								log.error("CSV input directory watcher interrupted while waiting", e);
 							return;
 						}
 
@@ -190,17 +203,6 @@ public class Main
 				scheduledExecutor.scheduleAtFixedRate(this::processCSVs, 5, 1800, TimeUnit.SECONDS);
 			}
 		}
-
-		//Setup SQLite DB
-		try
-		{
-			Class.forName("org.sqlite.JDBC");
-		}
-		catch(ClassNotFoundException e)
-		{
-			log.error("Couldn't initialise JDBC", e);
-		}
-		db = new DbConnection(dbPath == null ? DEFAULT_DB_FILE : new File(dbPath));
 	}
 
 	private void shutdown()
@@ -208,6 +210,7 @@ public class Main
 		log.info("Shutting down...");
 		synchronized(lock)
 		{
+			shuttingDown = true;
 			if(watcherThread != null)
 				watcherThread.interrupt();
 			if(scheduledExecutor != null)
@@ -349,7 +352,7 @@ public class Main
 		}
 		else
 		{
-			log.warn("Failed to process {} - will move it to failed directory");
+			log.warn("Failed to process {} - will move it to failed directory", file.getName());
 			if(!file.renameTo(new File(csvFailedDir, file.getName())))
 				log.warn("Failed to move CSV {} to the failed directory!", file.getName());
 		}
