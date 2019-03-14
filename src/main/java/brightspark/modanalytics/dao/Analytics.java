@@ -11,7 +11,7 @@ import java.util.Map;
 
 public class Analytics extends DbStorable
 {
-	private final int id;
+	private final String id;
 	private final int projectId;
 	private final AnalyticDate date;
 	private final float points;
@@ -23,7 +23,8 @@ public class Analytics extends DbStorable
 
 	public Analytics(ResultSet resultSet) throws SQLException
 	{
-		id = resultSet.getInt("id");
+		// ID = <projectId>_<analyticDate>
+		id = resultSet.getString("id");
 		projectId = resultSet.getInt("project_id");
 		date = new AnalyticDate(resultSet);
 		points = resultSet.getFloat("points");
@@ -39,9 +40,9 @@ public class Analytics extends DbStorable
 		if(csvRow.length != 9)
 			throw new RuntimeException(String.format("Invalid CSV data! Should be 9 values but there are %s", csvRow.length));
 
-		id = -1;
 		date = new AnalyticDate(csvRow[0]);
 		projectId = Integer.parseInt(csvRow[1]);
+		id = projectId + "_" + date.getDate();
 		points = Float.parseFloat(csvRow[3]);
 		historicalDownload = Integer.parseInt(csvRow[4]);
 		dailyDownload = Integer.parseInt(csvRow[5]);
@@ -50,7 +51,20 @@ public class Analytics extends DbStorable
 		dailyCurseForgeDownload = Integer.parseInt(csvRow[8]);
 	}
 
-	public int getId()
+	public Analytics(String id, int projectId, String date, float points, int historicalDownload, int dailyDownload, int dailyUniqueDownload, int dailyTwitchAppDownload, int dailyCurseForgeDownload)
+	{
+		this.id = id;
+		this.projectId = projectId;
+		this.date = new AnalyticDate(date);
+		this.points = points;
+		this.historicalDownload = historicalDownload;
+		this.dailyDownload = dailyDownload;
+		this.dailyUniqueDownload = dailyUniqueDownload;
+		this.dailyTwitchAppDownload = dailyTwitchAppDownload;
+		this.dailyCurseForgeDownload = dailyCurseForgeDownload;
+	}
+
+	public String getId()
 	{
 		return id;
 	}
@@ -104,7 +118,7 @@ public class Analytics extends DbStorable
 	@Override
 	protected String getColumns()
 	{
-		return "project_id,date,points,historical_download,daily_download,daily_unique_download,daily_twitch_app_download,daily_curseforge_download";
+		return "id,project_id,date,points,historical_download,daily_download,daily_unique_download,daily_twitch_app_download,daily_curseforge_download";
 	}
 
 	@Override
@@ -125,21 +139,22 @@ public class Analytics extends DbStorable
 	public PreparedStatement createStatement(Connection connection) throws SQLException
 	{
 		PreparedStatement statement = connection.prepareStatement(insertQuery);
-		statement.setInt(1, projectId);
-		statement.setString(2, date.getDate());
-		statement.setFloat(3, points);
-		statement.setInt(4, historicalDownload);
-		statement.setInt(5, dailyDownload);
-		statement.setInt(6, dailyUniqueDownload);
-		statement.setInt(7, dailyTwitchAppDownload);
-		statement.setInt(8, dailyCurseForgeDownload);
+		statement.setString(1, id);
+		statement.setInt(2, projectId);
+		statement.setString(3, date.getDate());
+		statement.setFloat(4, points);
+		statement.setInt(5, historicalDownload);
+		statement.setInt(6, dailyDownload);
+		statement.setInt(7, dailyUniqueDownload);
+		statement.setInt(8, dailyTwitchAppDownload);
+		statement.setInt(9, dailyCurseForgeDownload);
 		return statement;
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return id;
+		return id.hashCode();
 	}
 
 	@Override
@@ -148,6 +163,6 @@ public class Analytics extends DbStorable
 		if(obj == null) return false;
 		if(obj == this) return true;
 		if(obj.getClass() != getClass()) return false;
-		return id == ((Analytics) obj).id;
+		return id.equals(((Analytics) obj).id);
 	}
 }

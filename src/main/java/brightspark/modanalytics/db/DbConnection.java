@@ -29,7 +29,7 @@ public class DbConnection
 			"id integer primary key, " +
 			"name text not null"));
 		execute(String.format(QUERY_CREATE, TABLE_ANALYTICS,
-			"id integer primary key autoincrement, " +
+			"id text not null primary key, " +
 			"project_id integer not null, " +
 			"date text not null, " +
 			"points real not null, " +
